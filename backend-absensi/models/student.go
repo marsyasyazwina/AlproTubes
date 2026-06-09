@@ -1,15 +1,16 @@
 package models
 
 type Student struct {
-	NIM   string `json:"nim"`
-	Name  string `json:"name"`
-	Class string `json:"class"`
-	Major string `json:"major"`
+    NIM                 string             `json:"nim"`
+    Name                string             `json:"name"`
+    Class               string             `json:"clasSs"`
+    Major               string             `json:"major"`
+    PersentaseKehadiran float64            `json:"persentaseKehadiran"`
+    PersentasePerBulan  map[string]float64 `json:"persentasePerBulan"` 
 }
 
 type StudentInput struct {
-	NIM   string `json:"nim"` // FIX: tambah field NIM (opsional, auto-generate kalau kosong)
-	Name  string `json:"name"  binding:"required"`
-	Class string `json:"class" binding:"required"`
-	Major string `json:"major" binding:"required"`
+    Name  string `json:"name" binding:"required"`
+    Class string `json:"class" binding:"required"`
+    Major string `json:"major" binding:"required"`
 }

@@ -6,6 +6,7 @@ import {
   FlatList,
   TouchableOpacity,
   Alert,
+  Platform,
   Modal,
   ActivityIndicator,
   TextInput,
@@ -17,11 +18,13 @@ import spacing from '../styles/spacing';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import { getTodayDate, formatDisplayDate } from '../utils/helpers';
-import { api } from '../services/api'; // FIX: pakai centralized api.js, bukan fetch langsung
+
+const API_BASE_URL = 'http://localhost:8080/api';
 
 export default function DataScreen() {
   const [students, setStudents] = useState([]);
   const [attendances, setAttendances] = useState([]);
+  const [rankings, setRankings] = useState([]); // Untuk menyimpan persentase
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
@@ -30,36 +33,61 @@ export default function DataScreen() {
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [selectedStatus, setSelectedStatus] = useState('');
   const [saving, setSaving] = useState(false);
-
+  
+  // Form tambah
   const [newStudent, setNewStudent] = useState({ name: '', class: '', major: '' });
+  
+  // Form edit
   const [editingStudent, setEditingStudent] = useState({ nim: '', name: '', class: '', major: '' });
-
+  
   const todayDate = getTodayDate();
   const statusOptions = ['Hadir', 'Tidak Hadir', 'Izin', 'Sakit'];
 
-  // LOAD DATA
+  // LOAD SEMUA DATA
   const loadData = async () => {
     try {
-      const [studentsData, attendancesData] = await Promise.all([
-        api.getStudents(),
-        api.getAttendances(),
-      ]);
-      setStudents(studentsData);
-      setAttendances(attendancesData);
+      setLoading(true);
+      console.log('Loading data from API...');
+      
+      // Load students
+      const studentsRes = await fetch(`${API_BASE_URL}/students/`);
+      const studentsData = await studentsRes.json();
+      setStudents(studentsData.data || []);
+      
+      // Load attendances
+      const attendancesRes = await fetch(`${API_BASE_URL}/attendances/`);
+      const attendancesData = await attendancesRes.json();
+      setAttendances(attendancesData.data || []);
+      
+      // Load rankings untuk persentase
+      const rankingsRes = await fetch(`${API_BASE_URL}/stats/ranking?sort=desc`);
+      const rankingsData = await rankingsRes.json();
+      setRankings(rankingsData.data || []);
+      
+      console.log('Students loaded:', studentsData.data?.length);
+      console.log('Rankings loaded:', rankingsData.data?.length);
     } catch (error) {
       console.error('Load error:', error);
-      Alert.alert('Error', 'Gagal memuat data. Pastikan backend running dan IP sudah benar di api.js');
+      Alert.alert('Error', 'Gagal memuat data. Pastikan backend running di port 8080');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => {
+    loadData();
+  }, []);
 
   const onRefresh = () => {
     setRefreshing(true);
     loadData();
+  };
+
+  // Ambil persentase kehadiran dari data ranking
+  const getPersentase = (nim) => {
+    const ranking = rankings.find(r => r.nim === nim);
+    return ranking ? ranking.persentase : 0;
   };
 
   // TAMBAH MAHASISWA
@@ -68,15 +96,21 @@ export default function DataScreen() {
       Alert.alert('Error', 'Nama harus diisi');
       return;
     }
-
+    
     setSaving(true);
     try {
-      const result = await api.createStudent({
-        name: newStudent.name,
-        class: newStudent.class || 'Belum diisi',
-        major: newStudent.major || 'Belum diisi',
+      const response = await fetch(`${API_BASE_URL}/students/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newStudent.name,
+          class: newStudent.class || 'Belum diisi',
+          major: newStudent.major || 'Belum diisi',
+        }),
       });
-
+      
+      const result = await response.json();
+      
       if (result.status === 201) {
         Alert.alert('Berhasil', 'Mahasiswa ditambahkan');
         setAddModalVisible(false);
@@ -86,32 +120,48 @@ export default function DataScreen() {
         Alert.alert('Error', result.message || 'Gagal menambah');
       }
     } catch (error) {
+      console.error('Add error:', error);
       Alert.alert('Error', 'Terjadi kesalahan');
     } finally {
       setSaving(false);
     }
   };
 
- // HAPUS MAHASISWA - VERSI PALING SEDERHANA
-const handleDeleteStudent = (student) => {
-  if (window.confirm(`Hapus ${student.name}?`)) {
-    fetch(`http://localhost:8080/api/students/${student.nim}`, {
-      method: 'DELETE',
-    })
-    .then(res => res.json())
-    .then(data => {
-      if (data.status === 200) {
-        alert('Berhasil dihapus!');
-        loadData(); // Refresh data
-      } else {
-        alert('Gagal: ' + data.message);
-      }
-    })
-    .catch(err => {
-      alert('Error: ' + err.message);
-    });
-  }
-};
+  // HAPUS MAHASISWA
+  const handleDeleteStudent = (student) => {
+    Alert.alert(
+      'Hapus Mahasiswa',
+      `Yakin hapus ${student.name}?`,
+      [
+        { text: 'Batal', style: 'cancel' },
+        {
+          text: 'Hapus',
+          style: 'destructive',
+          onPress: async () => {
+            setSaving(true);
+            try {
+              const response = await fetch(`${API_BASE_URL}/students/${student.nim}`, {
+                method: 'DELETE',
+              });
+              
+              if (response.ok) {
+                Alert.alert('Berhasil', `${student.name} dihapus`);
+                loadData();
+              } else {
+                const result = await response.json();
+                Alert.alert('Error', result.message || 'Gagal hapus');
+              }
+            } catch (error) {
+              console.error('Delete error:', error);
+              Alert.alert('Error', error.message);
+            } finally {
+              setSaving(false);
+            }
+          },
+        },
+      ]
+    );
+  };
 
   // EDIT MAHASISWA
   const handleEditStudent = (student) => {
@@ -129,23 +179,29 @@ const handleDeleteStudent = (student) => {
       Alert.alert('Error', 'Nama harus diisi');
       return;
     }
-
+    
     setSaving(true);
     try {
-      const result = await api.updateStudent(editingStudent.nim, {
-        name: editingStudent.name,
-        class: editingStudent.class,
-        major: editingStudent.major,
+      const response = await fetch(`${API_BASE_URL}/students/${editingStudent.nim}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editingStudent.name,
+          class: editingStudent.class,
+          major: editingStudent.major,
+        }),
       });
-
-      if (result.status === 200) {
+      
+      if (response.ok) {
         Alert.alert('Berhasil', 'Data mahasiswa diupdate');
         setEditModalVisible(false);
         loadData();
       } else {
+        const result = await response.json();
         Alert.alert('Error', result.message || 'Gagal update');
       }
     } catch (error) {
+      console.error('Edit error:', error);
       Alert.alert('Error', 'Terjadi kesalahan');
     } finally {
       setSaving(false);
@@ -165,32 +221,41 @@ const handleDeleteStudent = (student) => {
       Alert.alert('Error', 'Pilih status');
       return;
     }
-
+    
     setSaving(true);
     try {
       const existing = attendances.find(a => a.nim === selectedStudent.nim && a.date === todayDate);
-
-      let result;
+      
+      let response;
       if (existing) {
-        result = await api.updateAttendance(existing.id, { status: selectedStatus });
+        response = await fetch(`${API_BASE_URL}/attendances/${existing.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: selectedStatus }),
+        });
       } else {
-        result = await api.createAttendance({
-          nim: selectedStudent.nim,
-          date: todayDate,
-          status: selectedStatus,
+        response = await fetch(`${API_BASE_URL}/attendances/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            nim: selectedStudent.nim,
+            date: todayDate,
+            status: selectedStatus,
+          }),
         });
       }
-
-      if (result.status === 200 || result.status === 201) {
+      
+      if (response.ok) {
         Alert.alert('Berhasil', 'Absensi disimpan');
         setModalVisible(false);
         setSelectedStudent(null);
         setSelectedStatus('');
         loadData();
       } else {
-        Alert.alert('Error', result.message || 'Gagal menyimpan');
+        Alert.alert('Error', 'Gagal menyimpan');
       }
     } catch (error) {
+      console.error('Save attendance error:', error);
       Alert.alert('Error', 'Terjadi kesalahan');
     } finally {
       setSaving(false);
@@ -243,7 +308,8 @@ const handleDeleteStudent = (student) => {
         <Text style={[styles.tableHeaderText, { width: 45 }]}>NO</Text>
         <Text style={[styles.tableHeaderText, { flex: 2 }]}>NAMA</Text>
         <Text style={[styles.tableHeaderText, { width: 70 }]}>STATUS</Text>
-        <Text style={[styles.tableHeaderText, { width: 140 }]}>AKSI</Text>
+        <Text style={[styles.tableHeaderText, { width: 100 }]}>PERSENTASE</Text>
+        <Text style={[styles.tableHeaderText, { width: 110 }]}>AKSI</Text>
       </View>
 
       {/* LIST */}
@@ -253,6 +319,7 @@ const handleDeleteStudent = (student) => {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         renderItem={({ item, index }) => {
           const status = getAttendanceStatus(item.nim);
+          const persentase = getPersentase(item.nim);
           return (
             <View style={styles.row}>
               <Text style={[styles.cellText, { width: 45 }]}>{index + 1}</Text>
@@ -268,9 +335,13 @@ const handleDeleteStudent = (student) => {
                   </Text>
                 </View>
               </View>
-              <View style={{ width: 140, flexDirection: 'row', gap: 5 }}>
+              <View style={{ width: 100 }}>
+                <View style={[styles.persentaseBar, { width: `${persentase}%` }]} />
+                <Text style={styles.persentaseText}>{persentase.toFixed(1)}%</Text>
+              </View>
+              <View style={{ width: 110, flexDirection: 'row', gap: 5 }}>
                 <TouchableOpacity style={[styles.actionBtn, styles.attendanceBtn]} onPress={() => handleEditAttendance(item)}>
-                  <Text style={styles.actionBtnText}>{status ? 'Edit Absen' : 'Isi Absen'}</Text>
+                  <Text style={styles.actionBtnText}>{status ? 'Edit' : 'Isi'}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.actionBtn, styles.editBtn]} onPress={() => handleEditStudent(item)}>
                   <Text style={styles.actionBtnText}>Edit</Text>
@@ -377,7 +448,9 @@ const styles = StyleSheet.create({
   statusText: { ...typography.labelSmall },
   statusTextHadir: { color: colors.present },
   statusTextTidak: { color: colors.absent },
-  actionBtn: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: 6, minWidth: 40, alignItems: 'center' },
+  persentaseBar: { height: 4, backgroundColor: colors.present, borderRadius: 2, marginBottom: 4 },
+  persentaseText: { ...typography.labelSmall, color: colors.primary, textAlign: 'center' },
+  actionBtn: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: 6, minWidth: 35, alignItems: 'center' },
   attendanceBtn: { backgroundColor: colors.primaryContainer },
   editBtn: { backgroundColor: colors.secondaryContainer },
   deleteBtn: { backgroundColor: colors.errorContainer },

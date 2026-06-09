@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
-  Platform,  
+  Platform,
 } from 'react-native';
 import colors from '../styles/colors';
 import typography from '../styles/typography';
@@ -16,7 +16,7 @@ import Card from '../components/Card';
 
 const API_BASE_URL = 'http://localhost:8080/api';
 
-// Komponen RankingItem sederhana di dalam file yang sama
+// Komponen RankingItem di dalam file yang sama
 const RankingItem = ({ rank, name, nim, persentase, totalHadir, totalTidak }) => {
   const getRankColor = () => {
     if (rank === 1) return '#FFD700';
@@ -25,7 +25,6 @@ const RankingItem = ({ rank, name, nim, persentase, totalHadir, totalTidak }) =>
     return colors.surfaceContainerHighest;
   };
 
-  // Pastikan persentase adalah angka
   const persentaseAngka = typeof persentase === 'number' ? persentase : 0;
 
   return (
@@ -55,13 +54,16 @@ export default function StatsScreen() {
   const [ranking, setRanking] = useState([]);
   const [summary, setSummary] = useState({
     averagePercentage: 0,
-    hadirTepatWaktu: 88,
+    totalStudents: 0,
+    totalHadir: 0,
+    totalTidakHadir: 0,
     izinSakit: 0
   });
   const [sortAscending, setSortAscending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Load ranking dari API
   const loadRanking = async (sort = 'desc') => {
     try {
       const response = await fetch(`${API_BASE_URL}/stats/ranking?sort=${sort}`);
@@ -75,7 +77,8 @@ export default function StatsScreen() {
         const avg = total / data.data.length;
         setSummary(prev => ({
           ...prev,
-          averagePercentage: avg
+          averagePercentage: avg,
+          totalStudents: data.data.length
         }));
       } else {
         setRanking([]);
@@ -86,6 +89,7 @@ export default function StatsScreen() {
     }
   };
 
+  // Load summary dari API today stats
   const loadSummary = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/stats/today`);
@@ -98,6 +102,8 @@ export default function StatsScreen() {
         
         setSummary(prev => ({
           ...prev,
+          totalHadir: stats.hadir || 0,
+          totalTidakHadir: stats.tidakHadir || 0,
           izinSakit: izinSakitPersen.toFixed(1)
         }));
       }
@@ -148,23 +154,24 @@ export default function StatsScreen() {
       }
     >
       <Text style={styles.title}>Statistik Kehadiran</Text>
+      <Text style={styles.subtitle}>Semester Ganjil 2023/2024</Text>
 
       {/* Summary Cards */}
       <View style={styles.summaryContainer}>
         <Card style={styles.summaryCard}>
           <Text style={styles.summaryNumber}>{summary.averagePercentage.toFixed(1)}%</Text>
           <Text style={styles.summaryLabel}>Rata-rata Kehadiran</Text>
-          <Text style={styles.summaryTrend}>Semester Ganjil 2023/2024</Text>
+          <Text style={styles.summaryTrend}>Dari {summary.totalStudents} Mahasiswa</Text>
         </Card>
 
         <Card style={styles.summaryCard}>
-          <Text style={styles.summaryNumber}>{summary.hadirTepatWaktu}%</Text>
-          <Text style={styles.summaryLabel}>Hadir Tepat Waktu</Text>
+          <Text style={[styles.summaryNumber, styles.hadirNumber]}>{summary.totalHadir}</Text>
+          <Text style={styles.summaryLabel}>Hadir Hari Ini</Text>
           <Text style={styles.summaryTrend}>Efisiensi Input</Text>
         </Card>
 
         <Card style={styles.summaryCard}>
-          <Text style={styles.summaryNumber}>{summary.izinSakit}%</Text>
+          <Text style={[styles.summaryNumber, styles.izinSakitNumber]}>{summary.izinSakit}%</Text>
           <Text style={styles.summaryLabel}>Izin / Sakit</Text>
           <Text style={styles.summaryTrend}>Distribusi Status</Text>
         </Card>
@@ -173,7 +180,7 @@ export default function StatsScreen() {
       {/* Ranking Section */}
       <View style={styles.rankingSection}>
         <Text style={styles.sectionTitle}>Peringkat Kehadiran Mahasiswa</Text>
-        <Text style={styles.sectionSubtitle}>Semester Ganjil 2023/2024</Text>
+        <Text style={styles.sectionSubtitle}>Berdasarkan Persentase Kehadiran</Text>
 
         <View style={styles.sortButtons}>
           <TouchableOpacity
@@ -196,8 +203,9 @@ export default function StatsScreen() {
 
         {ranking.length === 0 ? (
           <Card style={styles.emptyCard}>
+            <Text style={styles.emptyIcon}>📊</Text>
             <Text style={styles.emptyText}>Belum ada data kehadiran</Text>
-            <Text style={styles.emptySubText}>Input absensi terlebih dahulu</Text>
+            <Text style={styles.emptySubText}>Input absensi terlebih dahulu untuk melihat statistik</Text>
           </Card>
         ) : (
           ranking.map((student, index) => (
@@ -213,6 +221,20 @@ export default function StatsScreen() {
           ))
         )}
       </View>
+
+      {/* Info Card */}
+      <Card style={styles.infoCard}>
+        <Text style={styles.infoTitle}>ℹ️ Informasi</Text>
+        <Text style={styles.infoText}>
+          • Persentase kehadiran dihitung berdasarkan total kehadiran (Hadir) dibagi total pertemuan
+        </Text>
+        <Text style={styles.infoText}>
+          • Data diperbarui secara otomatis setiap kali absensi diinput
+        </Text>
+        <Text style={styles.infoText}>
+          • Gunakan tombol sorting untuk mengubah urutan peringkat
+        </Text>
+      </Card>
     </ScrollView>
   );
 }
@@ -237,6 +259,11 @@ const styles = StyleSheet.create({
   title: {
     ...typography.headlineMedium,
     color: colors.onSurface,
+    marginBottom: spacing.xs,
+  },
+  subtitle: {
+    ...typography.bodyMedium,
+    color: colors.onSurfaceVariant,
     marginBottom: spacing.lg,
   },
   summaryContainer: {
@@ -254,6 +281,12 @@ const styles = StyleSheet.create({
   summaryNumber: {
     ...typography.headlineMedium,
     color: colors.primary,
+  },
+  hadirNumber: {
+    color: colors.present,
+  },
+  izinSakitNumber: {
+    color: colors.permission,
   },
   summaryLabel: {
     ...typography.labelMedium,
@@ -306,6 +339,10 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     alignItems: 'center',
   },
+  emptyIcon: {
+    fontSize: 48,
+    marginBottom: spacing.md,
+  },
   emptyText: {
     ...typography.bodyLarge,
     color: colors.outline,
@@ -316,6 +353,21 @@ const styles = StyleSheet.create({
     color: colors.outline,
     textAlign: 'center',
     marginTop: spacing.sm,
+  },
+  infoCard: {
+    padding: spacing.md,
+    backgroundColor: colors.surfaceContainerHighest,
+    marginBottom: spacing.xl,
+  },
+  infoTitle: {
+    ...typography.labelLarge,
+    color: colors.onSurface,
+    marginBottom: spacing.sm,
+  },
+  infoText: {
+    ...typography.bodySmall,
+    color: colors.onSurfaceVariant,
+    marginBottom: spacing.xs,
   },
   // Ranking Item styles
   rankingCard: {
