@@ -19,12 +19,19 @@ import Card from '../components/Card';
 import Button from '../components/Button';
 import { getTodayDate, formatDisplayDate } from '../utils/helpers';
 
-const API_BASE_URL = 'http://localhost:8080/api';
+const getApiBaseUrl = () => {
+  if (Platform.OS === 'android') {
+    return 'http://10.0.2.2:8080/api';
+  }
+  return 'http://localhost:8080/api';
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 export default function DataScreen() {
   const [students, setStudents] = useState([]);
   const [attendances, setAttendances] = useState([]);
-  const [rankings, setRankings] = useState([]); // Untuk menyimpan persentase
+  const [rankings, setRankings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
@@ -33,42 +40,38 @@ export default function DataScreen() {
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [selectedStatus, setSelectedStatus] = useState('');
   const [saving, setSaving] = useState(false);
-  
-  // Form tambah
+
   const [newStudent, setNewStudent] = useState({ name: '', class: '', major: '' });
-  
-  // Form edit
   const [editingStudent, setEditingStudent] = useState({ nim: '', name: '', class: '', major: '' });
-  
+
   const todayDate = getTodayDate();
   const statusOptions = ['Hadir', 'Tidak Hadir', 'Izin', 'Sakit'];
 
-  // LOAD SEMUA DATA
   const loadData = async () => {
     try {
       setLoading(true);
-      console.log('Loading data from API...');
-      
-      // Load students
+      console.log('Loading data from API:', API_BASE_URL);
+
       const studentsRes = await fetch(`${API_BASE_URL}/students/`);
+      if (!studentsRes.ok) throw new Error(`Students fetch failed: ${studentsRes.status}`);
       const studentsData = await studentsRes.json();
       setStudents(studentsData.data || []);
-      
-      // Load attendances
+
       const attendancesRes = await fetch(`${API_BASE_URL}/attendances/`);
+      if (!attendancesRes.ok) throw new Error(`Attendances fetch failed: ${attendancesRes.status}`);
       const attendancesData = await attendancesRes.json();
       setAttendances(attendancesData.data || []);
-      
-      // Load rankings untuk persentase
+
       const rankingsRes = await fetch(`${API_BASE_URL}/stats/ranking?sort=desc`);
+      if (!rankingsRes.ok) throw new Error(`Rankings fetch failed: ${rankingsRes.status}`);
       const rankingsData = await rankingsRes.json();
       setRankings(rankingsData.data || []);
-      
+
       console.log('Students loaded:', studentsData.data?.length);
       console.log('Rankings loaded:', rankingsData.data?.length);
     } catch (error) {
       console.error('Load error:', error);
-      Alert.alert('Error', 'Gagal memuat data. Pastikan backend running di port 8080');
+      Alert.alert('Error', `Gagal memuat data: ${error.message}`);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -84,7 +87,6 @@ export default function DataScreen() {
     loadData();
   };
 
-  // Ambil persentase kehadiran dari data ranking
   const getPersentase = (nim) => {
     const ranking = rankings.find(r => r.nim === nim);
     return ranking ? ranking.persentase : 0;
@@ -96,80 +98,75 @@ export default function DataScreen() {
       Alert.alert('Error', 'Nama harus diisi');
       return;
     }
-    
+
     setSaving(true);
     try {
+      const body = {
+        name: newStudent.name.trim(),
+        class: newStudent.class.trim() || 'Belum diisi',
+        major: newStudent.major.trim() || 'Belum diisi',
+      };
+      console.log('POST /students body:', JSON.stringify(body));
+
       const response = await fetch(`${API_BASE_URL}/students/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: newStudent.name,
-          class: newStudent.class || 'Belum diisi',
-          major: newStudent.major || 'Belum diisi',
-        }),
+        body: JSON.stringify(body),
       });
-      
+
       const result = await response.json();
-      
+      console.log('POST /students result:', JSON.stringify(result));
+
       if (result.status === 201) {
         Alert.alert('Berhasil', 'Mahasiswa ditambahkan');
         setAddModalVisible(false);
         setNewStudent({ name: '', class: '', major: '' });
-        loadData();
+        await loadData();
       } else {
         Alert.alert('Error', result.message || 'Gagal menambah');
       }
     } catch (error) {
       console.error('Add error:', error);
-      Alert.alert('Error', 'Terjadi kesalahan');
+      Alert.alert('Error', `Terjadi kesalahan: ${error.message}`);
     } finally {
       setSaving(false);
     }
   };
 
-  // HAPUS MAHASISWA
-  const handleDeleteStudent = (student) => {
-    Alert.alert(
-      'Hapus Mahasiswa',
-      `Yakin hapus ${student.name}?`,
-      [
-        { text: 'Batal', style: 'cancel' },
-        {
-          text: 'Hapus',
-          style: 'destructive',
-          onPress: async () => {
-            setSaving(true);
-            try {
-              const response = await fetch(`${API_BASE_URL}/students/${student.nim}`, {
-                method: 'DELETE',
-              });
-              
-              if (response.ok) {
-                Alert.alert('Berhasil', `${student.name} dihapus`);
-                loadData();
-              } else {
-                const result = await response.json();
-                Alert.alert('Error', result.message || 'Gagal hapus');
-              }
-            } catch (error) {
-              console.error('Delete error:', error);
-              Alert.alert('Error', error.message);
-            } finally {
-              setSaving(false);
-            }
-          },
-        },
-      ]
-    );
-  };
+  const handleDeleteStudent = async (student) => {
+  console.log('Hapus student:', JSON.stringify(student));
 
+  setSaving(true);
+  try {
+    const url = `${API_BASE_URL}/students/${student.nim}`;
+    console.log('DELETE URL:', url);
+
+    const response = await fetch(url, { method: 'DELETE' });
+
+    console.log('DELETE response status:', response.status);
+    const text = await response.text();
+    console.log('DELETE response text:', text);
+
+    if (response.ok) {
+      Alert.alert('Berhasil', `${student.name} berhasil dihapus`);
+      await loadData();
+    } else {
+      Alert.alert('Gagal', `Status: ${response.status} - ${text}`);
+    }
+  } catch (error) {
+    console.error('Delete error:', error);
+    Alert.alert('Error', `${error.message}`);
+  } finally {
+    setSaving(false);
+  }
+};
   // EDIT MAHASISWA
   const handleEditStudent = (student) => {
     setEditingStudent({
       nim: student.nim,
       name: student.name,
-      class: student.class,
-      major: student.major,
+      class: student.class || '',
+      major: student.major || '',
     });
     setEditModalVisible(true);
   };
@@ -179,30 +176,35 @@ export default function DataScreen() {
       Alert.alert('Error', 'Nama harus diisi');
       return;
     }
-    
+
     setSaving(true);
     try {
+      const body = {
+        name: editingStudent.name.trim(),
+        class: editingStudent.class.trim() || 'Belum diisi',
+        major: editingStudent.major.trim() || 'Belum diisi',
+      };
+      console.log('PUT /students body:', JSON.stringify(body));
+
       const response = await fetch(`${API_BASE_URL}/students/${editingStudent.nim}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: editingStudent.name,
-          class: editingStudent.class,
-          major: editingStudent.major,
-        }),
+        body: JSON.stringify(body),
       });
-      
+
+      console.log('PUT response status:', response.status);
+
       if (response.ok) {
         Alert.alert('Berhasil', 'Data mahasiswa diupdate');
         setEditModalVisible(false);
-        loadData();
+        await loadData();
       } else {
         const result = await response.json();
         Alert.alert('Error', result.message || 'Gagal update');
       }
     } catch (error) {
       console.error('Edit error:', error);
-      Alert.alert('Error', 'Terjadi kesalahan');
+      Alert.alert('Error', `Terjadi kesalahan: ${error.message}`);
     } finally {
       setSaving(false);
     }
@@ -221,11 +223,11 @@ export default function DataScreen() {
       Alert.alert('Error', 'Pilih status');
       return;
     }
-    
+
     setSaving(true);
     try {
       const existing = attendances.find(a => a.nim === selectedStudent.nim && a.date === todayDate);
-      
+
       let response;
       if (existing) {
         response = await fetch(`${API_BASE_URL}/attendances/${existing.id}`, {
@@ -244,19 +246,19 @@ export default function DataScreen() {
           }),
         });
       }
-      
+
       if (response.ok) {
         Alert.alert('Berhasil', 'Absensi disimpan');
         setModalVisible(false);
         setSelectedStudent(null);
         setSelectedStatus('');
-        loadData();
+        await loadData();
       } else {
         Alert.alert('Error', 'Gagal menyimpan');
       }
     } catch (error) {
       console.error('Save attendance error:', error);
-      Alert.alert('Error', 'Terjadi kesalahan');
+      Alert.alert('Error', `Terjadi kesalahan: ${error.message}`);
     } finally {
       setSaving(false);
     }
@@ -283,7 +285,6 @@ export default function DataScreen() {
 
   return (
     <View style={styles.container}>
-      {/* HEADER */}
       <View style={styles.header}>
         <Text style={styles.title}>Data Mahasiswa</Text>
         <TouchableOpacity style={styles.addButton} onPress={() => setAddModalVisible(true)}>
@@ -291,7 +292,6 @@ export default function DataScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* STATS */}
       <View style={styles.statsRow}>
         <Card style={styles.statCard}>
           <Text style={[styles.statNumber, styles.hadirNumber]}>{stats.hadir}</Text>
@@ -303,7 +303,6 @@ export default function DataScreen() {
         </Card>
       </View>
 
-      {/* TABLE HEADER */}
       <View style={styles.tableHeader}>
         <Text style={[styles.tableHeaderText, { width: 45 }]}>NO</Text>
         <Text style={[styles.tableHeaderText, { flex: 2 }]}>NAMA</Text>
@@ -312,7 +311,6 @@ export default function DataScreen() {
         <Text style={[styles.tableHeaderText, { width: 110 }]}>AKSI</Text>
       </View>
 
-      {/* LIST */}
       <FlatList
         data={students}
         keyExtractor={(item) => item.nim}
@@ -329,24 +327,38 @@ export default function DataScreen() {
                 <Text style={styles.classText}>{item.class}</Text>
               </View>
               <View style={{ width: 70, alignItems: 'center' }}>
-                <View style={[styles.statusBadge, status === 'Hadir' && styles.statusHadir, status === 'Tidak Hadir' && styles.statusTidak]}>
-                  <Text style={[styles.statusText, status === 'Hadir' && styles.statusTextHadir, status === 'Tidak Hadir' && styles.statusTextTidak]}>
+                <View style={[
+                  styles.statusBadge,
+                  status === 'Hadir' && styles.statusHadir,
+                  status === 'Tidak Hadir' && styles.statusTidak,
+                ]}>
+                  <Text style={[
+                    styles.statusText,
+                    status === 'Hadir' && styles.statusTextHadir,
+                    status === 'Tidak Hadir' && styles.statusTextTidak,
+                  ]}>
                     {status || 'Belum'}
                   </Text>
                 </View>
               </View>
               <View style={{ width: 100 }}>
-                <View style={[styles.persentaseBar, { width: `${persentase}%` }]} />
+                <View style={[styles.persentaseBar, { width: `${Math.min(persentase, 100)}%` }]} />
                 <Text style={styles.persentaseText}>{persentase.toFixed(1)}%</Text>
               </View>
               <View style={{ width: 110, flexDirection: 'row', gap: 5 }}>
-                <TouchableOpacity style={[styles.actionBtn, styles.attendanceBtn]} onPress={() => handleEditAttendance(item)}>
+                <TouchableOpacity
+                  style={[styles.actionBtn, styles.attendanceBtn]}
+                  onPress={() => handleEditAttendance(item)}>
                   <Text style={styles.actionBtnText}>{status ? 'Edit' : 'Isi'}</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.actionBtn, styles.editBtn]} onPress={() => handleEditStudent(item)}>
+                <TouchableOpacity
+                  style={[styles.actionBtn, styles.editBtn]}
+                  onPress={() => handleEditStudent(item)}>
                   <Text style={styles.actionBtnText}>Edit</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.actionBtn, styles.deleteBtn]} onPress={() => handleDeleteStudent(item)}>
+                <TouchableOpacity
+                  style={[styles.actionBtn, styles.deleteBtn]}
+                  onPress={() => handleDeleteStudent(item)}>
                   <Text style={[styles.actionBtnText, { color: colors.error }]}>Hapus</Text>
                 </TouchableOpacity>
               </View>
@@ -368,12 +380,30 @@ export default function DataScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Tambah Mahasiswa</Text>
-            <TextInput style={styles.input} placeholder="Nama lengkap" value={newStudent.name} onChangeText={t => setNewStudent({...newStudent, name: t})} />
-            <TextInput style={styles.input} placeholder="Kelas" value={newStudent.class} onChangeText={t => setNewStudent({...newStudent, class: t})} />
-            <TextInput style={styles.input} placeholder="Jurusan" value={newStudent.major} onChangeText={t => setNewStudent({...newStudent, major: t})} />
+            <TextInput
+              style={styles.input}
+              placeholder="Nama lengkap"
+              value={newStudent.name}
+              onChangeText={t => setNewStudent({ ...newStudent, name: t })}
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Kelas"
+              value={newStudent.class}
+              onChangeText={t => setNewStudent({ ...newStudent, class: t })}
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Jurusan"
+              value={newStudent.major}
+              onChangeText={t => setNewStudent({ ...newStudent, major: t })}
+            />
             <View style={styles.modalButtons}>
               <Button title="Simpan" onPress={handleAddStudent} loading={saving} />
-              <Button title="Batal" variant="secondary" onPress={() => { setAddModalVisible(false); setNewStudent({ name: '', class: '', major: '' }); }} />
+              <Button title="Batal" variant="secondary" onPress={() => {
+                setAddModalVisible(false);
+                setNewStudent({ name: '', class: '', major: '' });
+              }} />
             </View>
           </View>
         </View>
@@ -385,9 +415,24 @@ export default function DataScreen() {
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Edit Mahasiswa</Text>
             <Text style={styles.modalSubtitle}>NIM: {editingStudent.nim}</Text>
-            <TextInput style={styles.input} placeholder="Nama lengkap" value={editingStudent.name} onChangeText={t => setEditingStudent({...editingStudent, name: t})} />
-            <TextInput style={styles.input} placeholder="Kelas" value={editingStudent.class} onChangeText={t => setEditingStudent({...editingStudent, class: t})} />
-            <TextInput style={styles.input} placeholder="Jurusan" value={editingStudent.major} onChangeText={t => setEditingStudent({...editingStudent, major: t})} />
+            <TextInput
+              style={styles.input}
+              placeholder="Nama lengkap"
+              value={editingStudent.name}
+              onChangeText={t => setEditingStudent({ ...editingStudent, name: t })}
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Kelas"
+              value={editingStudent.class}
+              onChangeText={t => setEditingStudent({ ...editingStudent, class: t })}
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Jurusan"
+              value={editingStudent.major}
+              onChangeText={t => setEditingStudent({ ...editingStudent, major: t })}
+            />
             <View style={styles.modalButtons}>
               <Button title="Simpan" onPress={handleSaveEditStudent} loading={saving} />
               <Button title="Batal" variant="secondary" onPress={() => setEditModalVisible(false)} />
@@ -405,14 +450,24 @@ export default function DataScreen() {
             <Text style={styles.modalDate}>{formatDisplayDate(todayDate)}</Text>
             <View style={styles.statusOptions}>
               {statusOptions.map(s => (
-                <TouchableOpacity key={s} style={[styles.statusOption, selectedStatus === s && styles.statusOptionSelected]} onPress={() => setSelectedStatus(s)}>
-                  <Text style={[styles.statusOptionText, selectedStatus === s && { color: colors.white }]}>{s}</Text>
+                <TouchableOpacity
+                  key={s}
+                  style={[styles.statusOption, selectedStatus === s && styles.statusOptionSelected]}
+                  onPress={() => setSelectedStatus(s)}>
+                  <Text style={[
+                    styles.statusOptionText,
+                    selectedStatus === s && { color: colors.white },
+                  ]}>{s}</Text>
                 </TouchableOpacity>
               ))}
             </View>
             <View style={styles.modalButtons}>
               <Button title="Simpan" onPress={handleSaveAttendance} loading={saving} />
-              <Button title="Batal" variant="secondary" onPress={() => { setModalVisible(false); setSelectedStudent(null); setSelectedStatus(''); }} />
+              <Button title="Batal" variant="secondary" onPress={() => {
+                setModalVisible(false);
+                setSelectedStudent(null);
+                setSelectedStatus('');
+              }} />
             </View>
           </View>
         </View>
