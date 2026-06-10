@@ -1,0 +1,9 @@
+﻿serviceAccountKey.json
+*.json
+.env
+node_modules/
+*.bat
+*.log
+.DS_Store
+Thumbs.db
+absensi-mahasiswa/
